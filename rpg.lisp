@@ -42,6 +42,18 @@
   (setf *log-combate* (append *log-combate* (list msg)))
   (when (> (length *log-combate*) *max-linhas-log*)
     (setf *log-combate* (cdr *log-combate*))))
+
+    ;; O gancho que vai segurar o "controle remoto" da tela
+(defvar *hook-atualizar-ui* nil)
+
+;; A função que você vai chamar no terminal!
+(defun atualizar-tela ()
+  (if *hook-atualizar-ui*
+      (progn
+        (adicionar-log "[SISTEMA] O REPL interveio e atualizou a realidade!")
+        (funcall *hook-atualizar-ui*)
+        'interface-atualizada-com-sucesso)
+      'erro-o-jogo-ainda-nao-comecou))
 ;; ====== 4. MÚLTIPLO DESPACHO ======
 
 (defgeneric atacar (atacante alvo))
@@ -118,6 +130,7 @@
 ;; ====== 6. INTERFACE GRAFICA ======
 
 (ql:quickload :ltk)
+(ql:quickload :bordeaux-threads)
 
 ;; Constroi string de barra de HP: ex "[####....] 70/100"
 (defun barra-hp (hp hp-max &optional (tamanho 10))
@@ -129,22 +142,24 @@
             hp hp-max)))
 
 (defun iniciar-jogo ()
-  (setf *random-state* (make-random-state t))
-  (setf *log-combate* (list "O combate ainda nao comecou!"))
+  ;; A funcao iniciar-jogo agora APENAS cria a thread e devolve o terminal pra voce na hora!
+  (bt:make-thread
+    (lambda ()
+      ;; === TODO O SEU CÓDIGO ANTIGO VEM AQUI PRA DENTRO ===
+      (setf *random-state* (make-random-state t))
+      (setf *log-combate* (list "O combate ainda nao comecou!"))
 
-  ;; Inicializando as variaveis globais em vez de usar 'let'
-  (setf *guerreiro* (make-instance 'guerreiro :nome "Jones" :hp 100 :hp-max 100 :forca 15 :magia 0))
-  (setf *mago* (make-instance 'mago :nome "Lisbon" :hp 80  :hp-max 80  :forca 5  :magia 20))
-  (setf *chefe* (make-instance 'monstro :nome "Prof. de Paradigmas" :hp 300 :hp-max 300))
+      (setf *guerreiro* (make-instance 'guerreiro :nome "Jones" :hp 100 :hp-max 100 :forca 15 :magia 0))
+      (setf *mago* (make-instance 'mago :nome "Lisbon" :hp 80  :hp-max 80  :forca 5  :magia 20))
+      (setf *chefe* (make-instance 'monstro :nome "Prof. de Paradigmas" :hp 300 :hp-max 300))
 
-  (let ((turno 0))  ;; Turno continua local, pois nao precisamos hackear ele
-
-    (ltk:with-ltk ()
-      (ltk:wm-title ltk:*tk* "Candy Box: Lisp Mutante Edition")
+      (let ((turno 0))
+        (ltk:with-ltk ()
+          (ltk:wm-title ltk:*tk* "LISP RPG")
 
       (let* (
              ;; === TITULO ===
-             (lbl-titulo (make-instance 'ltk:label :text "=== CANDY BOX: LISP MUTANTE ===" :font "Courier 14 bold"))
+             (lbl-titulo (make-instance 'ltk:label :text "=== LISP RPG ===" :font "Courier 14 bold"))
 
              ;; === CLIMA ===
              (lbl-clima (make-instance 'ltk:label :text (format nil "Clima: ~A" *clima-atual*) :font "Helvetica 11 bold" :foreground "darkgreen"))
@@ -279,6 +294,16 @@
                             (funcall atualizar-log)
                             (funcall atualizar-ast)))))
 
+        ;; === CONECTANDO O CONTROLE REMOTO PARA O REPL ===
+             ;; 1. Capturamos a conexao da Thread do jogo numa variavel local
+             (let ((conexao-tk ltk:*wish*)) 
+               (setf *hook-atualizar-ui*
+                     (lambda ()
+                       ;; 2. Quando o REPL chamar essa funcao, ele usa a conexao emprestada!
+                       (let ((ltk:*wish* conexao-tk))
+                         (funcall atualizar-status)
+                         (funcall atualizar-log)
+                         (funcall atualizar-ast)))))
         ;; === LAYOUT ===
         (ltk:pack lbl-titulo :pady 10)
         (ltk:pack lbl-clima :pady 3)
@@ -305,4 +330,4 @@
         (ltk:after 100
           (lambda ()
             (funcall atualizar-log)
-            (funcall atualizar-ast)))))))
+            (funcall atualizar-ast)))))))))
