@@ -1,30 +1,24 @@
 ;; ====== 1. CLASSES E ATRIBUTOS ======
 
 (defclass personagem ()
-  ((nome  :initarg :nome  :accessor nome)
-   (hp    :initarg :hp    :accessor hp)
-   (hp-max :initarg :hp-max :accessor hp-max)
-   (forca :initarg :forca :accessor forca)
-   (magia :initarg :magia :accessor magia)))
+  ((nome      :initarg :nome      :accessor nome)
+   (hp        :initarg :hp        :accessor hp)
+   (hp-max    :initarg :hp-max    :accessor hp-max)
+   (dano-base :initarg :dano-base :accessor dano-base)))
 
 (defclass guerreiro (personagem) ())
 (defclass mago      (personagem) ())
-
-(defclass monstro ()
-  ((nome   :initarg :nome   :accessor nome)
-   (hp     :initarg :hp     :accessor hp)
-   (hp-max :initarg :hp-max :accessor hp-max)))
+(defclass monstro (personagem) ())
 
 ;; ====== 2. FUNÇÕES BASE DE DANO ======
 
 (declaim (optimize (debug 3)))
 
-;; --- Dano dos jogadores ---
-(defun calcular-dano-guerreiro ()      15)
-(defun calcular-dano-mago (mago-obj)  (* (magia mago-obj) 2))
+;; --- Dano ---
+(defun calcular-dano-guerreiro (p) (dano-base p))
+(defun calcular-dano-mago (p)      (* (dano-base p) 2))
+(defun calcular-dano-boss (b)      (dano-base b))
 
-;; --- Dano do boss (também mutável!) ---
-(defun calcular-dano-boss () 20)
 
 ;; ====== 3. ESTADO GLOBAL ======
 
@@ -59,80 +53,78 @@
 (defgeneric atacar (atacante alvo))
 
 (defmethod atacar ((p guerreiro) (m monstro))
-  (let ((dano (calcular-dano-guerreiro)))
+  (let ((dano (calcular-dano-guerreiro p))) ;; <-- Passando 'p' aqui!
     (setf (hp m) (max 0 (- (hp m) dano)))
     (adicionar-log (format nil "[GUERREIRO] ~A atacou o Boss por ~A de dano!" (nome p) dano))))
 
 (defmethod atacar ((p mago) (m monstro))
-  (let ((dano (calcular-dano-mago p)))
+  (let ((dano (calcular-dano-mago p)))      ;; <-- Aqui ja estava certo
     (setf (hp m) (max 0 (- (hp m) dano)))
     (adicionar-log (format nil "[MAGO] ~A conjurou e causou ~A de dano!" (nome p) dano))))
 
 (defmethod atacar ((m monstro) (p personagem))
-  (let ((dano (calcular-dano-boss)))
+  (let ((dano (calcular-dano-boss m)))      ;; <-- Passando 'm' (o boss) aqui!
     (setf (hp p) (max 0 (- (hp p) dano)))
     (adicionar-log (format nil "[BOSS] ~A atacou ~A por ~A de dano!" (nome m) (nome p) dano))))
 
 ;; ====== 5. METAPROGRAMACAO DINAMICA (MUTACAO DO CLIMA) ======
-;; CONCEITO CHAVE: fdefinition permite SUBSTITUIR o corpo de uma funcao em tempo
-;; de execucao. A funcao continua com o mesmo nome, mas sua logica na RAM muda!
 
 (defun mudar-clima-do-mundo (tipo)
   (cond
     ;; --- CLIMA 1: Normal ---
     ((equal tipo 1)
      (setf *clima-atual* "Normal")
-     (setf *descricao-clima* "Logica padrao. Guerreiro=15 fixo, Mago=Magia*2, Boss=20 fixo.")
+     (setf *descricao-clima* "Logica padrao. Guerreiro usa dano-base, Mago=Magia*2, Boss usa dano-base.")
      (setf (fdefinition 'calcular-dano-guerreiro)
-           (lambda () 15))
+           (lambda (p) (dano-base p))) ;; <-- Usa o atributo da classe!
      (setf (fdefinition 'calcular-dano-mago)
-           (lambda (mago-obj) (* (magia mago-obj) 2)))
+           (lambda (p) (* (dano-base p) 2)))
      (setf (fdefinition 'calcular-dano-boss)
-           (lambda () 20)))
+           (lambda (b) (dano-base b)))) ;; <-- Usa o atributo da classe!
 
     ;; --- CLIMA 2: Infernal ---
     ((equal tipo 2)
      (setf *clima-atual* "Infernal (Fogo)")
-     (setf *descricao-clima* "Fogo caotiza tudo! Guerreiro=dado(0/15/50), Mago=Magia*4, Boss=35!")
+     (setf *descricao-clima* "Fogo caotiza tudo! Guerreiro=dado(0/Base/50), Mago=Magia*4, Boss=Base+15!")
      (setf (fdefinition 'calcular-dano-guerreiro)
-           (lambda ()
+           (lambda (p)
              (let ((dado (+ 1 (random 3))))
                (cond ((equal dado 1) 50)
-                     ((equal dado 2) 15)
+                     ((equal dado 2) (dano-base p)) ;; <-- Se tirar 2, bate o dano normal
                      (t              0)))))
      (setf (fdefinition 'calcular-dano-mago)
-           (lambda (mago-obj) (* (magia mago-obj) 4)))
+           (lambda (p) (* (dano-base p) 4)))
      (setf (fdefinition 'calcular-dano-boss)
-           (lambda () 35)))
+           (lambda (b) (+ (dano-base b) 15)))) ;; <-- Boss ganha buff no dano base!
 
     ;; --- CLIMA 3: Antimagia ---
     ((equal tipo 3)
      (setf *clima-atual* "Antimagia Absoluta")
-     (setf *descricao-clima* "Magia bloqueada! Mago causa 0 dano. Boss recua para 10.")
+     (setf *descricao-clima* "Magia bloqueada! Mago causa 0 dano. Boss enfraquece.")
      (setf (fdefinition 'calcular-dano-guerreiro)
-           (lambda () 15))
+           (lambda (p) (dano-base p)))
      (setf (fdefinition 'calcular-dano-mago)
-           (lambda (mago-obj) (declare (ignore mago-obj)) 0))
+           (lambda (p) (declare (ignore p)) 0)) ;; Ignora e bate 0
      (setf (fdefinition 'calcular-dano-boss)
-           (lambda () 10)))
+           (lambda (b) (declare (ignore b)) 10))) ;; Ignora a base e bate só 10
 
     ;; --- CLIMA 4: Inversao Total ---
     ((equal tipo 4)
      (setf *clima-atual* "Inversao Total")
      (setf *descricao-clima* "Realidade invertida! Mago vira tanque(5), Guerreiro usa magia(30), Boss confuso(5).")
      (setf (fdefinition 'calcular-dano-guerreiro)
-           (lambda () 30))
+           (lambda (p) (declare (ignore p)) 30))
      (setf (fdefinition 'calcular-dano-mago)
-           (lambda (mago-obj) (declare (ignore mago-obj)) 5))
+           (lambda (p) (declare (ignore p)) 5))
      (setf (fdefinition 'calcular-dano-boss)
-           (lambda () 5)))))
+           (lambda (b) (declare (ignore b)) 5)))))
 
 ;; ====== 6. INTERFACE GRAFICA ======
 
 (ql:quickload :ltk)
 (ql:quickload :bordeaux-threads)
 
-;; Constroi string de barra de HP: ex "[####....] 70/100"
+
 (defun barra-hp (hp hp-max &optional (tamanho 10))
   (let* ((cheios (round (* tamanho (/ hp hp-max))))
          (vazios (- tamanho cheios)))
@@ -149,9 +141,9 @@
       (setf *random-state* (make-random-state t))
       (setf *log-combate* (list "O combate ainda nao comecou!"))
 
-      (setf *guerreiro* (make-instance 'guerreiro :nome "Jones" :hp 100 :hp-max 100 :forca 15 :magia 0))
-      (setf *mago* (make-instance 'mago :nome "Lisbon" :hp 80  :hp-max 80  :forca 5  :magia 20))
-      (setf *chefe* (make-instance 'monstro :nome "Prof. de Paradigmas" :hp 300 :hp-max 300))
+      (setf *guerreiro* (make-instance 'guerreiro :nome "Jones" :hp 100 :hp-max 100 :dano-base 15))
+      (setf *mago* (make-instance 'mago :nome "Lisbon" :hp 80  :hp-max 80  :dano-base 30))
+      (setf *chefe* (make-instance 'monstro :nome "Prof. de Paradigmas" :hp 300 :hp-max 300 :dano-base 40))
 
       (let ((turno 0))
         (ltk:with-ltk ()
@@ -167,20 +159,22 @@
 
              ;; === STATUS DOS PERSONAGENS ===
              (lbl-status-g (make-instance 'ltk:label
-                             :text (format nil "Guerreiro ~A: ~A" (nome *guerreiro*) (barra-hp (hp *guerreiro*) (hp-max *guerreiro*)))
+                             :text (format nil "Guerreiro ~A [Base: ~A]: ~A" (nome *guerreiro*) (dano-base *guerreiro*) (barra-hp (hp *guerreiro*) (hp-max *guerreiro*)))
                              :font "Courier 10" :foreground "navy"))
              (lbl-status-m (make-instance 'ltk:label
-                             :text (format nil "Mago      ~A: ~A" (nome *mago*) (barra-hp (hp *mago*) (hp-max *mago*)))
+                             :text (format nil "Mago      ~A [Base: ~A]: ~A" (nome *mago*) (dano-base *mago*) (barra-hp (hp *mago*) (hp-max *mago*)))
                              :font "Courier 10" :foreground "purple"))
              (lbl-status-b (make-instance 'ltk:label
-                             :text (format nil "Boss ~A: ~A" (nome *chefe*) (barra-hp (hp *chefe*) (hp-max *chefe*)))
+                             :text (format nil "Boss ~A [Base: ~A]: ~A" (nome *chefe*) (dano-base *chefe*) (barra-hp (hp *chefe*) (hp-max *chefe*)))
                              :font "Courier 10 bold" :foreground "darkred"))
 
              ;; === LOG DE COMBATE ===
+             ;; (Mantenha o txt-log normal)
              (lbl-log-titulo (make-instance 'ltk:label :text "-- Log de Combate --" :font "Helvetica 10 bold"))
              (txt-log (make-instance 'ltk:text :width 65 :height 8))
 
              ;; === AST DAS FUNCOES ===
+             ;; (Mantenha normal)
              (lbl-ast-titulo (make-instance 'ltk:label :text "-- AST das Funcoes na RAM (fdefinition ao vivo) --" :font "Courier 10 bold"))
              (lbl-ast-g (make-instance 'ltk:label :text "calcular-dano-guerreiro:" :font "Courier 9 bold" :foreground "navy"))
              (txt-ast-guerreiro (make-instance 'ltk:text :width 65 :height 3))
@@ -192,10 +186,10 @@
              ;; === FUNCOES DE ATUALIZACAO DA UI ===
              (atualizar-status
                (lambda ()
-                 (setf (ltk:text lbl-status-g) (format nil "Guerreiro ~A: ~A" (nome *guerreiro*) (barra-hp (hp *guerreiro*) (hp-max *guerreiro*))))
-                 (setf (ltk:text lbl-status-m) (format nil "Mago      ~A: ~A" (nome *mago*) (barra-hp (hp *mago*) (hp-max *mago*))))
-                 (setf (ltk:text lbl-status-b) (format nil "Boss ~A: ~A" (nome *chefe*) (barra-hp (hp *chefe*) (hp-max *chefe*))))))
-
+                 (setf (ltk:text lbl-status-g) (format nil "Guerreiro ~A [Base: ~A]: ~A" (nome *guerreiro*) (dano-base *guerreiro*) (barra-hp (hp *guerreiro*) (hp-max *guerreiro*))))
+                 (setf (ltk:text lbl-status-m) (format nil "Mago      ~A [Base: ~A]: ~A" (nome *mago*) (dano-base *mago*) (barra-hp (hp *mago*) (hp-max *mago*))))
+                 (setf (ltk:text lbl-status-b) (format nil "Boss ~A [Base: ~A]: ~A" (nome *chefe*) (dano-base *chefe*) (barra-hp (hp *chefe*) (hp-max *chefe*))))))
+             
              (atualizar-log
                (lambda ()
                  (ltk:format-wish "~A configure -state normal" (ltk::widget-path txt-log))
